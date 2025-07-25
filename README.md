@@ -1,0 +1,2 @@
+# EEG_music_generation
+基于脑机接口的音乐实时生成系统
