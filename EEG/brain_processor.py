@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-EEG Brain Wave Data Processor Service
-脑波数据处理主服务
+EEG Brain Wave Data Processor Service for Social Audio System
+用于社交音频系统的脑波数据处理主服务
 
 负责：
 1. 连接Emotiv EEG设备获取脑波数据
 2. 实时分析情绪状态
-3. 通过HTTP API向音频服务发送情绪数据
+3. 通过HTTP API向社交音频服务发送情绪数据
 """
 
 import math
@@ -16,6 +16,8 @@ import logging
 import asyncio
 import requests
 import time
+import socket
+import uuid
 from cortex import Cortex
 from typing import Dict, Any
 import json
@@ -32,9 +34,11 @@ logger = logging.getLogger(__name__)
 YOUR_APP_CLIENT_ID = '6OV53rWuPZiJo6419CHi4ppabSdqKpTgfYCU5mvV'
 YOUR_APP_CLIENT_SECRET = 'XMWhqlpRTnQfe8a0b363jYFD976u7Ar17mQw2IWJT6eS2Z5LllaMckJbfbrSEqJYZ2LBpru6cvusWDapvjPSPutglsUwgNXYUzzcLKZqIhYOV52Rcy0YilZDJwoaQWnE'
 
-# --- 音频服务配置 ---
-AUDIO_SERVICE_URL = 'http://localhost:8080'
+# --- 社交音频服务配置 ---
+SOCIAL_AUDIO_SERVICE_URL = 'http://localhost:8080'
 EMOTION_UPDATE_ENDPOINT = '/update_emotion'
+JOIN_SESSION_ENDPOINT = '/join_session'
+LEAVE_SESSION_ENDPOINT = '/leave_session'
 
 # ========================================================================================
 # 情绪识别模块 (Emotion Recognition Module)
@@ -128,51 +132,134 @@ def analyze_emotion_from_sample(sample_list):
     return emotion, intensity, v, a
 
 # ========================================================================================
-# 音频服务通信模块 (Audio Service Communication Module)
+# 社交音频服务通信模块 (Social Audio Service Communication Module)
 # ========================================================================================
 
-class AudioServiceClient:
-    def __init__(self, base_url: str):
-        self.base_url = base_url
+class SocialAudioServiceClient:
+    """社交音频服务客户端"""
+    
+    def __init__(self, service_url: str, user_id: str):
+        self.service_url = service_url
+        self.user_id = user_id
+        self.device_info = self._get_device_info()
+        self.session_active = False
         self.session = requests.Session()
         self.last_emotion_time = 0
         
-    def send_emotion_update(self, emotion: str, intensity: float, valence: float, arousal: float) -> bool:
-        """发送情绪更新到音频服务"""
-        current_time = time.time()
-            
+        logger.info(f"初始化社交音频服务客户端: {service_url}")
+        logger.info(f"主机用户ID: {user_id}")
+        logger.info(f"设备信息: {self.device_info}")
+    
+    def _get_device_info(self) -> str:
+        """获取设备信息"""
         try:
-            data = {
-                'emotion': emotion,
-                'intensity': intensity,
-                'valence': valence,
-                'arousal': arousal,
-                'timestamp': current_time
-            }
-            
+            hostname = socket.gethostname()
+            ip = socket.gethostbyname(hostname)
+            return f"Host_{hostname}({ip})"
+        except Exception:
+            return "Host_Unknown_Device"
+    
+    def check_service_health(self) -> bool:
+        """检查社交音频服务健康状态"""
+        try:
+            response = self.session.get(f"{self.service_url}/health", timeout=3)
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"社交音频服务状态: {data.get('status')}")
+                return data.get('status') == 'healthy'
+            return False
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"检查服务健康状态失败: {e}")
+            return False
+    
+    def join_session(self) -> bool:
+        """加入会话"""
+        try:
             response = self.session.post(
-                f"{self.base_url}{EMOTION_UPDATE_ENDPOINT}",
-                json=data,
-                timeout=2.0  # 增加超时时间到2秒
+                f"{self.service_url}{JOIN_SESSION_ENDPOINT}",
+                params={
+                    "user_id": self.user_id,
+                    "device_info": self.device_info
+                },
+                timeout=5
             )
             
             if response.status_code == 200:
-                self.last_emotion_time = current_time
-                return True
+                data = response.json()
+                if data.get('status') == 'success':
+                    self.session_active = True
+                    logger.info(f"成功加入会话: {data.get('message')}")
+                    return True
+            
+            logger.error(f"加入会话失败: {response.status_code} - {response.text}")
+            return False
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"加入会话请求失败: {e}")
+            return False
+    
+    def leave_session(self) -> bool:
+        """离开会话"""
+        try:
+            response = self.session.post(
+                f"{self.service_url}{LEAVE_SESSION_ENDPOINT}",
+                params={"user_id": self.user_id},
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'success':
+                    self.session_active = False
+                    logger.info(f"成功离开会话: {data.get('message')}")
+                    return True
+            
+            logger.warning(f"离开会话失败: {response.status_code} - {response.text}")
+            return False
+            
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"离开会话请求失败: {e}")
+            return False
+    
+    def send_emotion_data(self, emotion: str, intensity: float) -> bool:
+        """发送情绪数据到社交音频服务"""
+        try:
+            # 构建符合社交音频服务要求的请求数据
+            emotion_data = {
+                "user_emotion_data": {
+                    "user_id": self.user_id,
+                    "emotion": emotion,
+                    "intensity": intensity,
+                    "timestamp": time.time(),
+                    "device_info": self.device_info
+                }
+            }
+            
+            # 发送POST请求
+            response = self.session.post(
+                f"{self.service_url}{EMOTION_UPDATE_ENDPOINT}",
+                json=emotion_data,
+                timeout=3,
+                headers={'Content-Type': 'application/json'}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'success':
+                    logger.debug(f"情绪数据发送成功: {emotion} ({intensity:.2f})")
+                    return True
+                else:
+                    logger.warning(f"情绪数据处理失败: {data.get('message')}")
+                    return False
             else:
-                logger.warning(f"音频服务返回错误状态码: {response.status_code}")
+                logger.warning(f"发送情绪数据失败: {response.status_code} - {response.text}")
                 return False
                 
         except requests.exceptions.RequestException as e:
-            logger.error(f"发送情绪数据到音频服务失败: {e}")
+            logger.warning(f"发送情绪数据网络错误: {e}")
             return False
-    
-    def check_audio_service_health(self) -> bool:
-        """检查音频服务是否可用"""
-        try:
-            response = self.session.get(f"{self.base_url}/health", timeout=2.0)
-            return response.status_code == 200
-        except requests.exceptions.RequestException:
+        except Exception as e:
+            logger.error(f"发送情绪数据失败: {e}")
             return False
 
 # ========================================================================================
@@ -180,7 +267,7 @@ class AudioServiceClient:
 # ========================================================================================
 
 class EEGDataProcessor:
-    def __init__(self, app_client_id, app_client_secret, audio_client: AudioServiceClient, **kwargs):
+    def __init__(self, app_client_id, app_client_secret, audio_client: SocialAudioServiceClient, **kwargs):
         logger.info("正在初始化Cortex客户端...")
         self.cortex = Cortex(app_client_id, app_client_secret, debug_mode=False, **kwargs)
         self.cortex.bind(new_met_data=self.on_new_met_data)
@@ -226,14 +313,14 @@ class EEGDataProcessor:
             current_time = time.time()
             if current_time - self.last_output_time >= self.output_interval:
                 # 控制台输出
-                print(f"[{time.strftime('%H:%M:%S')}] 当前情绪: {emotion} | 强度: {intensity:.2f}/100 | (V: {v:.2f}, A: {a:.2f})")
+                print(f"[{time.strftime('%H:%M:%S')}] 💭 主机情绪: {emotion} | 强度: {intensity:.2f}/100 | (V: {v:.2f}, A: {a:.2f})")
                 
-                # 发送到音频服务
-                success = self.audio_client.send_emotion_update(emotion, intensity/100.0, v, a)
+                # 发送到社交音频服务（强度转换为0-1范围）
+                success = self.audio_client.send_emotion_data(emotion, intensity/100.0)
                 if success:
-                    logger.info(f"已发送情绪数据到音频服务: {emotion} ({intensity:.1f}%)")
+                    logger.info(f"🎵 已发送情绪数据到社交音频服务: {emotion} ({intensity:.1f}%)")
                 else:
-                    logger.warning("向音频服务发送情绪数据失败")
+                    logger.warning("❌ 向社交音频服务发送情绪数据失败")
                 
                 # 更新最后输出时间
                 self.last_output_time = current_time
@@ -270,65 +357,66 @@ class EEGDataProcessor:
 
 def main():
     """主程序入口"""
-    logger.info("启动EEG脑波数据处理服务...")
+    logger.info("启动主机EEG脑波数据处理服务...")
     
     # 检查凭证配置
     if YOUR_APP_CLIENT_ID == '你的Client ID' or YOUR_APP_CLIENT_SECRET == '你的Client Secret':
         logger.error("错误：请在代码中填入你的 Emotiv App Client ID 和 Client Secret!")
         return
     
-    # 初始化音频服务客户端
-    audio_client = AudioServiceClient(AUDIO_SERVICE_URL)
+    # 生成主机用户ID
+    hostname = socket.gethostname()
+    host_user_id = f"host_{hostname}_{str(uuid.uuid4())[:8]}"
     
-    # 检查音频服务是否可用
-    logger.info("检查音频服务连接...")
-    max_retries = 30  # 最多等待30秒
-    retry_count = 0
+    # 初始化社交音频服务客户端
+    audio_client = SocialAudioServiceClient(SOCIAL_AUDIO_SERVICE_URL, host_user_id)
     
-    while retry_count < max_retries:
-        if audio_client.check_audio_service_health():
-            logger.info("音频服务连接成功!")
-            break
-        else:
-            logger.info(f"等待音频服务启动... ({retry_count + 1}/{max_retries})")
-            time.sleep(1)
-            retry_count += 1
-    
-    if retry_count >= max_retries:
-        logger.error("无法连接到音频服务，请确保音频服务已启动!")
+    # 检查社交音频服务健康状态
+    logger.info("检查社交音频服务状态...")
+    if not audio_client.check_service_health():
+        logger.error("❌ 社交音频服务不可用，请先启动 host_main.py")
+        logger.error("   请确保运行: python host_main.py")
         return
     
-    # 初始化EEG数据处理器
-    eeg_processor = EEGDataProcessor(
-        YOUR_APP_CLIENT_ID, 
-        YOUR_APP_CLIENT_SECRET,
-        audio_client
-    )
+    # 加入会话
+    logger.info("加入社交音频会话...")
+    if not audio_client.join_session():
+        logger.error("❌ 无法加入社交音频会话")
+        return
     
-    # 启动EEG数据采集
-    logger.info("启动EEG数据采集...")
-    logger.info("请戴上你的Emotiv设备并确保Cortex服务正在运行。")
-    logger.info("💡 系统将每5秒输出一次情绪状态，而不是每条数据都输出")
-    
+    # 启动EEG数据处理
     try:
-        eeg_processor.start(['met'])
+        logger.info("启动EEG数据处理器...")
+        eeg_processor = EEGDataProcessor(YOUR_APP_CLIENT_ID, YOUR_APP_CLIENT_SECRET, audio_client)
         
-        # 保持程序运行
-        logger.info("EEG脑波数据处理服务正在运行...")
-        logger.info("📊 实时数据采集中，每5秒汇总输出一次情绪状态")
-        logger.info("按Ctrl+C停止服务")
+        streams = ['met']  # 只需要情绪数据流
+        eeg_processor.start(streams)
         
+        logger.info("=" * 60)
+        logger.info("🧠 主机EEG脑波数据处理服务已启动")
+        logger.info(f"👤 主机用户ID: {host_user_id}")
+        logger.info(f"🎵 连接到社交音频服务: {SOCIAL_AUDIO_SERVICE_URL}")
+        logger.info("💭 主机的情绪数据将与其他用户融合生成音乐")
+        logger.info("⏹️  按 Ctrl+C 停止服务")
+        logger.info("=" * 60)
+        
+        # 保持运行
         while True:
             time.sleep(1)
-            if not eeg_processor.is_connected:
-                logger.warning("EEG设备连接丢失，尝试重新连接...")
-                
+            
     except KeyboardInterrupt:
-        logger.info("接收到停止信号，正在关闭服务...")
+        logger.info("\n👋 用户请求停止服务...")
     except Exception as e:
-        logger.error(f"程序运行出错: {e}")
+        logger.error(f"❌ 服务运行出错: {e}")
     finally:
-        logger.info("EEG脑波数据处理服务已退出。")
+        # 清理资源
+        logger.info("🧹 清理资源...")
+        try:
+            audio_client.leave_session()
+        except Exception as e:
+            logger.warning(f"离开会话失败: {e}")
+        
+        logger.info("✅ 主机EEG脑波数据处理服务已停止")
 
 if __name__ == "__main__":
     main() 

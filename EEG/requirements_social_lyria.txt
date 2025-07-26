@@ -1,0 +1,27 @@
+# 社交EEG音频生成服务（Google Lyria增强版）依赖
+# Social EEG Audio Generation Service (Google Lyria Enhanced) Requirements
+
+# 核心Web框架
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+
+# 数据处理和科学计算
+numpy>=1.24.0
+pydantic>=2.5.0
+
+# 音频处理
+sounddevice>=0.4.6
+
+# Google AI SDK (Lyria音乐生成)
+google-genai>=0.3.0
+
+# 网络通信
+aiohttp>=3.9.0
+websockets>=11.0.2
+
+# 可选依赖（用于测试）
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# 日志和监控
+colorlog>=6.7.0 
