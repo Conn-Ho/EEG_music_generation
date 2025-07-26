@@ -1,0 +1,28 @@
+# === 原有依赖 ===
+websocket-client
+google-genai>=0.3.0
+sounddevice>=0.4.6
+numpy>=1.21.0
+python-socks>=2.0.0
+asyncio 
+
+# === 新增依赖 - 用于服务分离和HTTP通信 ===
+# Web框架和HTTP服务器
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# HTTP客户端
+requests>=2.31.0
+
+# 数据验证和序列化
+pydantic>=2.0.0
+
+# 日志和工具
+python-multipart>=0.0.6
+typing-extensions>=4.0.0
+
+# === VPN环境网络工具依赖 ===
+# 网络接口检测
+netifaces>=0.11.0
+# IP地址处理 (Python 3.3+ 内置)
+# ipaddress 
