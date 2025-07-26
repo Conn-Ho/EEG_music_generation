@@ -189,8 +189,11 @@ class SocialServiceManager:
                 for user in status['users']:
                     active_symbol = "🟢" if user.get('is_active') else "🔴"
                     emotion = user.get('last_emotion', 'N/A')
-                    intensity = user.get('last_intensity', 0)
-                    print(f"      {active_symbol} {user['user_id']}: {emotion} ({intensity:.2f})")
+                    intensity = user.get('last_intensity')
+                    if intensity is not None:
+                        print(f"      {active_symbol} {user['user_id']}: {emotion} ({intensity:.2f})")
+                    else:
+                        print(f"      {active_symbol} {user['user_id']}: {emotion} (--)")
         else:
             print("\n❌ 无法获取服务状态")
     

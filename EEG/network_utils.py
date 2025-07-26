@@ -217,9 +217,37 @@ class NetworkScanner:
         """扫描网络段中的服务"""
         found_services = []
         
-        # 只扫描部分IP范围以节省时间（1-20, 100-120）
+        # 扩展扫描范围，特别针对VPN网络
         scan_ranges = list(range(1, 21)) + list(range(100, 121))
         
+        # 如果是VPN网络（30.x.x.x），还要扫描相邻网段
+        if network_prefix.startswith('30.'):
+            # 分析当前网段
+            parts = network_prefix.split('.')
+            if len(parts) >= 3:
+                base_net = f"{parts[0]}.{parts[1]}"
+                current_subnet = int(parts[2])
+                
+                # 扫描相邻的子网段（±3）
+                adjacent_subnets = []
+                for offset in range(-3, 4):
+                    subnet = current_subnet + offset
+                    if 0 <= subnet <= 255:
+                        adjacent_subnets.append(f"{base_net}.{subnet}")
+                
+                print(f"🔍 VPN网络模式：扫描相邻子网段 {adjacent_subnets}")
+                
+                # 扫描相邻子网段
+                for subnet_prefix in adjacent_subnets:
+                    for i in scan_ranges:
+                        ip = f"{subnet_prefix}.{i}"
+                        if self._check_service(ip, port, timeout):
+                            found_services.append(ip)
+                            print(f"✅ 发现服务: {ip}:{port}")
+                
+                return found_services
+        
+        # 标准局域网扫描
         print(f"🔍 扫描网络 {network_prefix}.x 端口 {port}...")
         
         for i in scan_ranges:
